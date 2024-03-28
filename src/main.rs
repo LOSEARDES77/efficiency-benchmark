@@ -33,7 +33,7 @@ fn main() {
 
     // check if system in plugged
     if is_plugged() {
-        println!("Please unplug in the system to start th benchmarking");
+        println!("Please unplug the system to start th benchmarking");
         loop {
             if !is_plugged(){
                 break;
@@ -44,7 +44,7 @@ fn main() {
 
     let battery_percentage = get_battery_percentage();
     if battery_percentage < 100 {
-        println!("[{}] Battery is not full, you might get a lower", "WARNING".red());
+        println!("[{}] Battery is not full, you might get a lower score", "WARNING".red());
         print!("Would you like to continue? [Y/N] ");
         stdout().flush().unwrap();
         let mut input = String::new();
@@ -69,7 +69,7 @@ fn main() {
     }
 
     if is_plugged() {
-        println!("Please unplug in the system to start th benchmarking");
+        println!("Please unplug the system to start th benchmarking");
         loop {
             if !is_plugged(){
                 break;
