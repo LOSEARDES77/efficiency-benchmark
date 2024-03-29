@@ -1,4 +1,4 @@
-use std::env::{set_current_dir, args};
+use std::env::set_current_dir;
 use std::fs::{copy, create_dir, create_dir_all, metadata, read_dir, remove_dir_all, remove_file, File};
 use std::io::{BufRead, BufReader, stdout, Write, stdin};
 use std::process::{Command, exit, Stdio};
@@ -6,6 +6,7 @@ use std::thread::sleep;
 use std::time::Duration;
 use battery::{Manager, State};
 use colored::Colorize;
+use chrono::Local;
 
 
 fn main() {
@@ -14,35 +15,6 @@ fn main() {
     let build_command = "make all";
     let source_dir = "repo-dir";
     let build_dir = "build-dir";
-
-    let args: Vec<String> = args().collect();
-    if args.len() > 1 {
-        for arg in args.clone() {
-            if arg == "--help" {
-                println!("Usage: {} [repo-url] [build-command] [options]", args[0]);
-                println!("");
-                println!("Options:");
-                println!("  --help: Display this help message");
-                println!("");
-                println!("Default options:");
-                println!("  repo-url: {}", repo_url);
-                println!("  build-command: {}", build_command);
-                exit(0);
-            }
-        }
-    }
-
-
-    // check if system in plugged
-    if is_plugged(false) {
-        println!("Please unplug the system to start th benchmarking");
-        loop {
-            if !is_plugged(true){
-                break;
-            }
-            sleep(Duration::from_secs(1));
-        }
-    }
 
     let battery_percentage = get_battery_percentage();
     if battery_percentage < 100 {
@@ -67,16 +39,6 @@ fn main() {
         }else {
             println!("Exiting...");
             exit(1);
-        }
-    }
-
-    if is_plugged(true) {
-        println!("Please unplug the system to start th benchmarking");
-        loop {
-            if !is_plugged(true){
-                break;
-            }
-            sleep(Duration::from_secs(1));
         }
     }
 
@@ -106,17 +68,10 @@ fn main() {
     set_current_dir("benchmark").unwrap();
 
     // delete log file
-    let logfile = "benchmark-score.log";
-    let log = read_dir(".");
-    if log.is_ok() {
-        for entry in log.unwrap() {
-            let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_file() {
-                if entry.file_name().to_str().unwrap() == logfile {
-                    remove_file(logfile).unwrap();
-                }
-            }
-        }
+    let current_time = Local::now().format("%d-%m-%Y_%H:%M:%S").to_string();
+    let logfile = format!("benchmark-{}.log", current_time);
+    if metadata(logfile.clone()).is_ok() {
+        remove_file(logfile).unwrap();
     }
 
     let repo_dir = read_dir(source_dir);
@@ -168,6 +123,16 @@ fn main() {
         remove_dir_all(build_dir).unwrap();
     }
 
+    if is_plugged(false) {
+        println!("Please unplug the system to start th benchmarking");
+        loop {
+            if !is_plugged(true){
+                break;
+            }
+            sleep(Duration::from_secs(1));
+        }
+    }
+
     loop {
         // Copy build dir
         println!("Copying repo");
@@ -187,6 +152,8 @@ fn main() {
         println!("Build successful!");
         add_one();
     }
+    
+
 }
 
 fn add_one() {
