@@ -217,7 +217,21 @@ fn get_battery_percentage() -> u8 {
 
 fn is_plugged() -> bool {
     let manager = Manager::new().unwrap().batteries().unwrap();
-    let battery = manager.into_iter().next().unwrap().unwrap();
+    let battery = match manager.into_iter().next().unwrap() {
+        Ok(battery) => battery,
+        Err(_) => {
+            println!("[{}] This benchmark is meant for laptops", "WARNING".red());
+            println!("[{}] This benchmark will infinitely loop compiling something until it runs out of battery", "WARNING".red());
+            print!("Would you like to continue anyway? [Y/N] ");
+            stdout().flush().unwrap();
+            let mut input = String::new();
+            stdin().read_line(&mut input).unwrap();
+            if input.trim().to_lowercase() != "y" {
+                exit(1);
+            }
+            return false;
+        },
+    };
     let state = battery.state();
     match state {
         State::Charging => { return true; },
