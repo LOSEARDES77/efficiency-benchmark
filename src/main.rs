@@ -1,5 +1,5 @@
-use std::env::set_current_dir;
-use std::fs::{create_dir, read_dir, remove_file};
+use std::env::{set_current_dir, args};
+use std::fs::{copy, create_dir, create_dir_all, metadata, read_dir, remove_dir_all, remove_file, File};
 use std::io::{BufRead, BufReader, stdout, Write, stdin};
 use std::process::{Command, exit, Stdio};
 use std::thread::sleep;
@@ -12,8 +12,10 @@ fn main() {
 
     let repo_url = "https://github.com/hyprwm/Hyprland.git";
     let build_command = "make all";
+    let source_dir = "repo-dir";
+    let build_dir = "build-dir";
 
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = args().collect();
     if args.len() > 1 {
         for arg in args.clone() {
             if arg == "--help" {
@@ -93,7 +95,7 @@ fn main() {
                 let mut input = String::new();
                 stdin().read_line(&mut input).unwrap();
                 if input.trim().to_lowercase() == "y" {
-                    delete_dir("benchmark");
+                    remove_dir_all("benchmark").unwrap();
                     create_dir("benchmark").unwrap();
                 }
             }
@@ -117,7 +119,7 @@ fn main() {
         }
     }
 
-    let repo_dir = read_dir("repo_dir");
+    let repo_dir = read_dir(source_dir);
     let mut has_asked = false;
     let mut repo_exists = false;
     if repo_dir.is_ok() {
@@ -131,7 +133,7 @@ fn main() {
                 let mut input = String::new();
                 stdin().read_line(&mut input).unwrap();
                 if input.trim().to_lowercase() == "y" {
-                    delete_dir("repo_dir");
+                    remove_dir_all(source_dir).unwrap();
                     repo_exists = false;
                 }
             }
@@ -144,7 +146,7 @@ fn main() {
             .arg("--progress")
             .arg(repo_url)
             .arg("--recursive")
-            .arg("repo_dir")
+            .arg(source_dir)
             .stderr(Stdio::piped())
             .spawn()
             .expect("failed to clone linux kernel");
@@ -162,75 +164,48 @@ fn main() {
         command.wait().expect("failed to wait for command");
     }
 
-    let copy_dir = read_dir("build-dir");
-
-
-    if copy_dir.is_ok() {
-        for entry in copy_dir.unwrap() {
-            let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_dir() {
-                delete_dir("build-dir");
-            }
-        }
+    if metadata(build_dir).is_ok() {
+        remove_dir_all(build_dir).unwrap();
     }
+
     loop {
-        // Copy the linux kernel to another directory
+        // Copy build dir
         println!("Copying repo");
+        copy_directory(source_dir, build_dir).expect("failed to copy src directory");
 
-        Command::new("cp")
-            .arg("-r")
-            .arg("repo_dir")
-            .arg("build-dir")
-            .stdout(Stdio::null())
-            .output()
-            .expect("failed to copy linux kernel");
-
-
-        set_current_dir("build-dir").unwrap();
-
-
-        // build the kernel
-
-        // Linux:
+        set_current_dir(build_dir).unwrap();
+        
+        // Build
+        println!("Building");
         execute_build_command(build_command);
 
-        // remove the linux kernel
+        // Delete build dir
         set_current_dir("../").unwrap();
+        remove_dir_all(build_dir).unwrap();
+        
+        // Add score
+        println!("Build successful!");
         add_one();
-        delete_dir("build-dir");
     }
-}
-
-fn delete_dir(path: &str) {
-    Command::new("rm")
-        .arg("-rf")
-        .arg(path)
-        .output()
-        .expect("failed to delete directory");
 }
 
 fn add_one() {
     let logfile = "benchmark-score.log";
-
-
-    let contents = Command::new("cat")
-        .arg(logfile)
-        .output()
-        .expect("failed to create log file");
-
-    let mut score = 0;
-    if contents.stdout.len() > 0 {
-        score = String::from_utf8_lossy(&contents.stdout).parse().unwrap();
+    
+    if !metadata(logfile).is_ok() {
+        let mut file = File::create(logfile).unwrap();
+        file.write_all("0".as_bytes()).unwrap();
     }
-    score += 1;
-    Command::new("sed")
-        .arg("-i")
-        .arg("s/.*/".to_owned() + &score.to_string() + "/")
-        .arg(logfile)
-        .output()
-        .expect("failed to update log file");
 
+    let mut reader = BufReader::new(File::open(logfile).unwrap());
+    let mut score = Vec::new(); // Change the type of score to Vec<u8>
+    reader.read_until(b'\n', &mut score).unwrap();
+    let score = String::from_utf8_lossy(&score).parse::<u32>().unwrap(); // Parse the score as u32
+    let score = score + 1; // Increment the score
+    let mut file = File::create(logfile).unwrap();
+    file.write_all(score.to_string().as_bytes()).unwrap();
     println!("Current Score: {}", score);
+    sleep(Duration::from_secs(1));
 }
 
 fn get_battery_percentage() -> u8 {
@@ -244,7 +219,11 @@ fn is_plugged() -> bool {
     let manager = Manager::new().unwrap().batteries().unwrap();
     let battery = manager.into_iter().next().unwrap().unwrap();
     let state = battery.state();
-    return state == State::Charging;
+    match state {
+        State::Charging => { return true; },
+        State::Full => { return true; },
+        _ => { return false; },
+    }
 }
 
 fn execute_build_command(command: &str) {
@@ -267,5 +246,24 @@ fn execute_build_command(command: &str) {
             Err(_) => {},
         }
     }
+}
+
+fn copy_directory(source: &str, destination: &str) -> std::io::Result<()> {
+    create_dir_all(destination)?;
+
+    for entry in read_dir(source)? {
+        let entry = entry?;
+        let entry_type = entry.file_type()?;
+        let entry_path = entry.path();
+        let destination_path = format!("{}/{}", destination, entry_path.file_name().unwrap().to_string_lossy());
+
+        if entry_type.is_dir() {
+            copy_directory(&entry_path.to_string_lossy(), &destination_path)?;
+        } else {
+            copy(&entry_path, &destination_path)?;
+        }
+    }
+
+    Ok(())
 }
 
