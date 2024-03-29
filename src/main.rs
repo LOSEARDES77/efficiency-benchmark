@@ -34,10 +34,10 @@ fn main() {
 
 
     // check if system in plugged
-    if is_plugged() {
+    if is_plugged(false) {
         println!("Please unplug the system to start th benchmarking");
         loop {
-            if !is_plugged(){
+            if !is_plugged(true){
                 break;
             }
             sleep(Duration::from_secs(1));
@@ -70,10 +70,10 @@ fn main() {
         }
     }
 
-    if is_plugged() {
+    if is_plugged(true) {
         println!("Please unplug the system to start th benchmarking");
         loop {
-            if !is_plugged(){
+            if !is_plugged(true){
                 break;
             }
             sleep(Duration::from_secs(1));
@@ -210,24 +210,32 @@ fn add_one() {
 
 fn get_battery_percentage() -> u8 {
     let manager = Manager::new().unwrap().batteries().unwrap();
-    let battery = manager.into_iter().next().unwrap().unwrap();
+    let battery = match manager.into_iter().next(){
+        Some(battery) => battery.unwrap(),
+        None => {
+            return 100 as u8;
+        },
+    
+    };
     let percentage = battery.state_of_charge().value * 100.0;
     return percentage as u8;
 }
 
-fn is_plugged() -> bool {
+fn is_plugged(has_asked: bool) -> bool {
     let manager = Manager::new().unwrap().batteries().unwrap();
     let battery = match manager.into_iter().next() {
         Some(battery) => battery,
         None => {
-            println!("[{}] This benchmark is meant for laptops", "WARNING".red());
-            println!("[{}] This benchmark will infinitely loop compiling something until it runs out of battery", "WARNING".red());
-            print!("Would you like to continue anyway? [Y/N] ");
-            stdout().flush().unwrap();
-            let mut input = String::new();
-            stdin().read_line(&mut input).unwrap();
-            if input.trim().to_lowercase() != "y" {
-                exit(1);
+            if !has_asked {
+                println!("[{}] This benchmark is meant for laptops", "WARNING".red());
+                println!("[{}] This benchmark will infinitely loop compiling something until it runs out of battery", "WARNING".red());
+                print!("Would you like to continue anyway? [Y/N] ");
+                stdout().flush().unwrap();
+                let mut input = String::new();
+                stdin().read_line(&mut input).unwrap();
+                if input.trim().to_lowercase() != "y" {
+                    exit(1);
+                }
             }
             return false;
         },
