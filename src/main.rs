@@ -1,4 +1,4 @@
-use std::env::set_current_dir;
+use std::env::{args, set_current_dir};
 use std::fs::{copy, create_dir, create_dir_all, metadata, read_dir, remove_dir_all, remove_file, File};
 use std::io::{BufRead, BufReader, stdout, Write, stdin};
 use std::process::{Command, exit, Stdio};
@@ -11,10 +11,73 @@ use chrono::Local;
 
 fn main() {
 
-    let repo_url = "https://github.com/hyprwm/Hyprland.git";
-    let build_command = "make all";
+    let mut repo_url = "https://github.com/rust-lang/rustlings.git";
+    let mut build_command = String::from("cargo build");
     let source_dir = "repo-dir";
     let build_dir = "build-dir";
+
+    let args = args().collect::<Vec<String>>();
+    let mut has_arg_repo = false;
+    let mut has_arg_build = false;
+    for i in 0..args.len() {
+        if args[i] == "--help" || args[i] == "-h" {
+            #[cfg(unix)]
+            println!("Usage: {} [OPTIONS]", args[0].split("/").collect::<Vec<&str>>().last().unwrap());
+            #[cfg(windows)]
+            println!("Usage: {} [OPTIONS]", args[0].split("\\").collect::<Vec<&str>>().last().unwrap());
+            println!();
+            println!("Options:");
+            println!("  --help, -h    Show this help message");
+            println!("  --repo, -r    Set the repository URL to clone");
+            println!("  --build, -b   Set the build command");
+            println!();
+            println!("If no args provided it will use by default:");
+            println!("  repo-url   -> https://github.com/rust-lang/rustlings.git");
+            println!("  build-cmd  -> cargo build");
+            println!();
+            println!("This benchmark is meant for laptops,");
+            println!("It will infinitely loop compiling something until it runs out of battery");
+            println!("That's how this benchmark works");
+            println!();
+            exit(0);
+        }
+        if args[i] == "--repo" || args[i] == "-r" {
+            has_arg_repo = true;
+            if i + 1 < args.len() {
+                repo_url = &args[i + 1];
+            }
+        }
+        if args[i] == "--build" || args[i] == "-b" {
+            has_arg_build = true;
+            if i + 1 < args.len() {
+                let mut new_build_command = String::new();
+                for j in i + 1..args.len() {
+                    if args[j].contains("--") || args[j].contains("-"){
+                        break;
+                    }
+                    new_build_command = format!("{} {}", new_build_command, args[j].as_str());
+                }
+                build_command = new_build_command;
+            }
+        }
+    }
+
+    let repo_url = repo_url.trim();
+    let build_command = build_command.trim();
+
+    if has_arg_repo {
+        let is_valid_repo_url = repo_url.starts_with("http://") || repo_url.starts_with("https://") || repo_url.starts_with("git@");
+        println!("{}", is_valid_repo_url);
+        if !is_valid_repo_url {
+            println!("[{}] Invalid repository URL", "ERROR".red());
+            exit(1);
+        }
+        println!("Using repository: {}", repo_url);
+    }
+
+    if has_arg_build {
+        println!("Using build command: {}", build_command);
+    }
 
     let battery_percentage = get_battery_percentage();
     if battery_percentage < 100 {
@@ -42,37 +105,12 @@ fn main() {
         }
     }
 
-    // check if battery is full
-
-    let mut hash_asked = false;
     // check if directory exists
-    let dir = read_dir("benchmark");
-    if dir.is_ok() {
-        for entry in dir.unwrap() {
-            let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_dir() && !hash_asked {
-                hash_asked = true;
-                print!("Benchmark directory already exists, would you like to delete it? [Y/N] ");
-                stdout().flush().unwrap();
-                let mut input = String::new();
-                stdin().read_line(&mut input).unwrap();
-                if input.trim().to_lowercase() == "y" {
-                    remove_dir_all("benchmark").unwrap();
-                    create_dir("benchmark").unwrap();
-                }
-            }
-        }
-    }else {
+    if  !read_dir("benchmark").is_ok() {
         create_dir("benchmark").unwrap();
     }
-    set_current_dir("benchmark").unwrap();
 
-    // delete log file
-    let current_time = Local::now().format("%d-%m-%Y_%H:%M:%S").to_string();
-    let logfile = format!("benchmark-{}.log", current_time);
-    if metadata(logfile.clone()).is_ok() {
-        remove_file(logfile).unwrap();
-    }
+    set_current_dir("benchmark").unwrap();
 
     let repo_dir = read_dir(source_dir);
     let mut has_asked = false;
@@ -132,7 +170,13 @@ fn main() {
             sleep(Duration::from_secs(1));
         }
     }
-
+    
+    let current_time = Local::now().format("%d-%m-%Y_%H:%M:%S").to_string();
+    let logfile = &format!("benchmark-{}.log", current_time);
+    if metadata(logfile).is_ok() {
+        remove_file(logfile).unwrap();
+    }
+    
     loop {
         // Copy build dir
         println!("Copying repo");
@@ -142,7 +186,7 @@ fn main() {
         
         // Build
         println!("Building");
-        execute_build_command(build_command);
+        execute_build_command(&build_command);
 
         // Delete build dir
         set_current_dir("../").unwrap();
@@ -150,14 +194,14 @@ fn main() {
         
         // Add score
         println!("Build successful!");
-        add_one();
+        
+        add_one(logfile);
     }
     
 
 }
 
-fn add_one() {
-    let logfile = "benchmark-score.log";
+fn add_one(logfile: &str) {
     
     if !metadata(logfile).is_ok() {
         let mut file = File::create(logfile).unwrap();
