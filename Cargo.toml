@@ -2,6 +2,11 @@
 name = "efficiency-benchmark"
 version = "0.1.0"
 edition = "2021"
+description = "A simple benchmarking tool for measuring the efficiency of your laptop."
+license = "MIT"
+repository = "https://github.com/LOSEARDES77/efficiency-benchmark.git"
+keywords = ["bench", "benchmark", "efficiency", "laptop", "battery", "power", "consumption", "time", "chrono", "colored", "rust", "cli", "tool", "utility", "measure", "measurements", "measurements" ]
+categories = ["cli", "utility", "benchmark", "efficiency", "measurements" ]
 
 [dependencies]
 battery = "0.7.8"
