@@ -204,6 +204,9 @@ fn copy_directory(source: &str, destination: &str) -> std::io::Result<()> {
 }
 
 pub fn get_highest_score(app_dir: &str) -> u32 {
+    if metadata(app_dir).is_err() {
+        create_dir_all(app_dir).unwrap();
+    }
     let mut highest_score = 0;
     for entry in read_dir(app_dir).unwrap() {
         let entry = entry.unwrap();
@@ -223,6 +226,9 @@ pub fn get_highest_score(app_dir: &str) -> u32 {
 }
 
 pub fn get_latest_score(app_dir: &str) -> u32 {
+    if metadata(app_dir).is_err() {
+        create_dir_all(app_dir).unwrap();
+    }
     let mut latest_date = String::new();
     let mut latest_time = String::new();
     for entry in read_dir(app_dir).unwrap() {
@@ -254,12 +260,14 @@ pub fn get_latest_score(app_dir: &str) -> u32 {
     #[cfg(windows)]
     let logfile = &format!("{}\\benchmark-{}_{}.log",app_dir, latest_date, latest_time);
     if metadata(logfile).is_ok() {
-        println!("Latest Logfile: {}", logfile);
         let file = File::open(logfile).unwrap();
         let mut reader = BufReader::new(file);
         let mut score = Vec::new();
         reader.read_until(b'\n', &mut score).unwrap();
-        let score = String::from_utf8_lossy(&score).parse::<u32>().unwrap();
+        let score = match String::from_utf8_lossy(&score).parse::<u32>(){
+            Ok(score) => score,
+            Err(_) => 0,
+        };
         return score;
     }
     0

@@ -1,6 +1,6 @@
 [package]
 name = "efficiency-benchmark"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 description = "A simple benchmarking tool for measuring the efficiency of your laptop."
 license = "MIT"
