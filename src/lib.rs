@@ -66,7 +66,7 @@ pub fn bench(repo_url: &str, build_command: &str, source_dir: &str, build_dir: &
             }
         }
         
-        let current_time = Local::now().format("%d-%m-%Y_%H:%M:%S").to_string();
+        let current_time = Local::now().format("%d-%m-%Y_%H:%M").to_string();
         let logfile = &format!("benchmark-{}.log", current_time);
         if metadata(logfile).is_ok() {
             remove_file(logfile).unwrap();
@@ -171,7 +171,7 @@ pub fn execute_build_command(command: &str) {
     let mut process = command
         .stdout(Stdio::piped())
         .spawn()
-        .expect("failed to build linux kernel");
+        .expect("failed to build repository");
 
     let reader = BufReader::new(process.stdout.take().expect("failed to get stdout"));
     for line in reader.lines() {
@@ -201,4 +201,66 @@ fn copy_directory(source: &str, destination: &str) -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+pub fn get_highest_score(app_dir: &str) -> u32 {
+    let mut highest_score = 0;
+    for entry in read_dir(app_dir).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_type().unwrap().is_file() {
+            let file = File::open(entry.path()).unwrap();
+            let mut reader = BufReader::new(file);
+            let mut score = Vec::new();
+            reader.read_until(b'\n', &mut score).unwrap();
+            let score = String::from_utf8_lossy(&score).parse::<u32>().unwrap();
+            if score > highest_score {
+                highest_score = score;
+            }
+        }
+        
+    }
+    highest_score
+}
+
+pub fn get_latest_score(app_dir: &str) -> u32 {
+    let mut latest_date = String::new();
+    let mut latest_time = String::new();
+    for entry in read_dir(app_dir).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_type().unwrap().is_file() {
+            if entry.file_name().to_string_lossy().starts_with("benchmark") {
+                let date = entry.file_name().to_str().unwrap().to_owned();
+                let date = date.replace("benchmark-", "");
+                let date = date.replace(".log", "");
+                let parts = date.split("_").collect::<Vec<&str>>();
+                let time = parts[1].to_owned();
+                let date = parts[0].to_owned();
+                if date > latest_date {
+                    latest_date = date;
+                    latest_time = time;
+                } else if date == latest_date {
+                    if time > latest_time {
+                        latest_time = time;
+                    }
+                }
+
+                
+
+            }
+        }
+    }
+    #[cfg(unix)]
+    let logfile = &format!("{}/benchmark-{}_{}.log",app_dir, latest_date, latest_time);
+    #[cfg(windows)]
+    let logfile = &format!("{}\\benchmark-{}_{}.log",app_dir, latest_date, latest_time);
+    if metadata(logfile).is_ok() {
+        println!("Latest Logfile: {}", logfile);
+        let file = File::open(logfile).unwrap();
+        let mut reader = BufReader::new(file);
+        let mut score = Vec::new();
+        reader.read_until(b'\n', &mut score).unwrap();
+        let score = String::from_utf8_lossy(&score).parse::<u32>().unwrap();
+        return score;
+    }
+    0
 }
