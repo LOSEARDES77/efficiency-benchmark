@@ -12,3 +12,7 @@ categories = ["cli", "utility", "benchmark", "efficiency", "measurements" ]
 battery = "0.7.8"
 chrono = "0.4.37"
 colored = "2.1.0"
+
+[[bin]]
+name = "efficiency-benchmark"
+path = "src/bin/main.rs"
