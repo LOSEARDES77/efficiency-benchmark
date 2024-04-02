@@ -210,12 +210,16 @@ pub fn get_highest_score(app_dir: &str) -> u32 {
     let mut highest_score = 0;
     for entry in read_dir(app_dir).unwrap() {
         let entry = entry.unwrap();
-        if entry.file_type().unwrap().is_file() {
+        if entry.file_type().unwrap().is_file() && entry.file_name().to_string_lossy().starts_with("benchmark"){
             let file = File::open(entry.path()).unwrap();
             let mut reader = BufReader::new(file);
             let mut score = Vec::new();
             reader.read_until(b'\n', &mut score).unwrap();
-            let score = String::from_utf8_lossy(&score).parse::<u32>().unwrap();
+            let score = match String::from_utf8_lossy(&score).parse::<u32>(){
+                Ok(score) => score,
+                Err(_) => 0,
+            
+            };
             if score > highest_score {
                 highest_score = score;
             }
