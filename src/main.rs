@@ -2,7 +2,8 @@ use std::env::{args, set_current_dir};
 use std::fs::{copy, create_dir, create_dir_all, metadata, read_dir, remove_dir_all, remove_file, File};
 use std::io::{BufRead, BufReader, stdout, Write, stdin};
 use std::process::{Command, exit, Stdio};
-use std::thread::sleep;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread::{self, sleep};
 use std::time::Duration;
 use battery::{Manager, State};
 use colored::Colorize;
@@ -13,8 +14,6 @@ fn main() {
 
     let mut repo_url = "https://github.com/rust-lang/rustlings.git";
     let mut build_command = String::from("cargo build");
-    let source_dir = "repo-dir";
-    let build_dir = "build-dir";
 
     let args = args().collect::<Vec<String>>();
     let mut has_arg_repo = false;
@@ -105,12 +104,24 @@ fn main() {
         }
     }
 
-    // check if directory exists
-    if  !read_dir("benchmark").is_ok() {
-        create_dir("benchmark").unwrap();
+    #[cfg(unix)]
+    let app_dir = format!("{}/.local/share/{}", std::env::var("HOME").expect("No HOME directory"), std::env::var("CARGO_PKG_NAME").expect("No CARGO_PKG_NAME"));
+    #[cfg(windows)]
+    let app_dir = format!("{}\\{}", std::env::var("APP_DATA").expect("No APP_DATA directory"), std::env::var("CARGO_PKG_NAME").expect("No CARGO_PKG_NAME"));
+
+    let app_dir = app_dir.as_str();
+
+    if  !read_dir(app_dir).is_ok() {
+        create_dir(app_dir).unwrap();
     }
 
-    set_current_dir("benchmark").unwrap();
+    let source_dir = format!("{}/repo-dir", app_dir);
+    let build_dir = format!("{}/build-dir", app_dir);
+
+    let source_dir = source_dir.as_str();
+    let build_dir = build_dir.as_str();
+
+
 
     let repo_dir = read_dir(source_dir);
     let mut has_asked = false;
@@ -133,73 +144,105 @@ fn main() {
         }
     }
     
-    if !repo_exists {
-        let mut command = Command::new("git")
-            .arg("clone")
-            .arg("--progress")
-            .arg(repo_url)
-            .arg("--recursive")
-            .arg(source_dir)
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("failed to clone linux kernel");
-    
-        let reader = BufReader::new(command.stderr.take().expect("failed to get stderr"));
-        for line in reader.lines() {
-            match line {
-                Ok(line) => {
-                    println!("{}", line);
-                },
-                Err(_) => {},
-            }
-        }
-    
-        command.wait().expect("failed to wait for command");
-    }
 
-    if metadata(build_dir).is_ok() {
-        remove_dir_all(build_dir).unwrap();
-    }
 
-    if is_plugged(false) {
-        println!("Please unplug the system to start th benchmarking");
-        loop {
-            if !is_plugged(true){
-                break;
-            }
-            sleep(Duration::from_secs(1));
-        }
-    }
-    
-    let current_time = Local::now().format("%d-%m-%Y_%H:%M:%S").to_string();
-    let logfile = &format!("benchmark-{}.log", current_time);
-    if metadata(logfile).is_ok() {
-        remove_file(logfile).unwrap();
-    }
-    
-    loop {
-        // Copy build dir
-        println!("Copying repo");
-        copy_directory(source_dir, build_dir).expect("failed to copy src directory");
+    let iterator = bench(repo_url, build_command, source_dir, build_dir, repo_exists);
 
-        set_current_dir(build_dir).unwrap();
-        
-        // Build
-        println!("Building");
-        execute_build_command(&build_command);
-
-        // Delete build dir
-        set_current_dir("../").unwrap();
-        remove_dir_all(build_dir).unwrap();
-        
-        // Add score
-        println!("Build successful!");
-        
-        add_one(logfile);
+    for line in iterator {
+        println!("{}", line);
     }
     
 
 }
+
+/// Runs the benchmark.
+///
+/// This method takes in the repository URL, build command, source directory, build directory, and a flag indicating whether the repository already exists.
+/// It creates a channel for communication between threads and spawns a new thread to perform the benchmarking.
+/// If the repository does not exist, it clones the repository using `git clone` command.
+/// It then checks if the build directory exists and removes it if it does.
+/// If the system is plugged in, it waits for the system to be unplugged before starting the benchmarking.
+/// It creates a log file with a timestamp and starts an infinite loop.
+/// In each iteration of the loop, it copies the source directory to the build directory, changes the current directory to the build directory, executes the build command, changes the current directory back, removes the build directory, and increments the score in the log file.
+/// The output of each step is sent through the channel to be consumed by the main thread.
+/// The method returns an iterator over the output lines received from the channel.
+pub fn bench(repo_url: &str, build_command: &str, source_dir: &str, build_dir: &str, repo_exists: bool) -> impl Iterator<Item = String> {
+    let (sender, receiver): (Sender<String>, Receiver<String>) = channel();
+    let repo_url = repo_url.to_owned();
+    let build_command = build_command.to_owned();
+    let source_dir = source_dir.to_owned();
+    let build_dir = build_dir.to_owned();
+    thread::spawn(move || {
+        if !repo_exists {
+            let mut command = Command::new("git")
+                .arg("clone")
+                .arg("--progress")
+                .arg(&repo_url)
+                .arg("--recursive")
+                .arg(&source_dir)
+                .stdout(Stdio::piped())
+                .spawn()
+                .expect("failed to clone repository");
+    
+            let reader = BufReader::new(command.stdout.take().expect("failed to get stderr"));
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => {
+                        sender.send(line.clone()).unwrap(); // Add the output line to the vector
+                    },
+                    Err(_) => {},
+                }
+            }
+        
+            command.wait().expect("failed to wait for command");
+        }
+    
+        if metadata(&build_dir).is_ok() {
+            remove_dir_all(&build_dir).unwrap();
+        }
+    
+        
+        if is_plugged(false) {
+            sender.send("Please unplug the system to start the benchmarking".to_string()).unwrap();
+            loop {
+                if !is_plugged(true){
+                    break;
+                }
+                sleep(Duration::from_secs(1));
+            }
+        }
+        
+        let current_time = Local::now().format("%d-%m-%Y_%H:%M:%S").to_string();
+        let logfile = &format!("benchmark-{}.log", current_time);
+        if metadata(logfile).is_ok() {
+            remove_file(logfile).unwrap();
+        }
+        
+        loop {
+            // Copy build dir
+            sender.send("Copying repo".to_string()).unwrap();
+            copy_directory(&source_dir, &build_dir).expect("failed to copy src directory");
+    
+            set_current_dir(&build_dir).unwrap();
+            
+            // Build
+            sender.send("Building".to_string()).unwrap();
+            execute_build_command(&build_command);
+    
+            // Delete build dir
+            set_current_dir("../").unwrap();
+            remove_dir_all(&build_dir).unwrap();
+            
+            // Add score
+            sender.send("Build successful!".to_string()).unwrap();
+            
+            add_one(logfile);
+        }
+    });
+
+    receiver.into_iter()
+}
+
 
 fn add_one(logfile: &str) {
     
@@ -219,7 +262,9 @@ fn add_one(logfile: &str) {
     sleep(Duration::from_secs(1));
 }
 
-fn get_battery_percentage() -> u8 {
+/// Returns the battery percentage
+/// If on a device without battery, it will return 100
+pub fn get_battery_percentage() -> u8 {
     let manager = Manager::new().unwrap().batteries().unwrap();
     let battery = match manager.into_iter().next(){
         Some(battery) => battery.unwrap(),
@@ -232,7 +277,11 @@ fn get_battery_percentage() -> u8 {
     return percentage as u8;
 }
 
-fn is_plugged(has_asked: bool) -> bool {
+/// Returns true if the laptop is plugged in
+/// Returns false if the laptop is not plugged in
+/// If on a device without battery, it will ask the user if they want to continue
+/// and return false if the user confirms
+pub fn is_plugged(has_asked: bool) -> bool {
     let manager = Manager::new().unwrap().batteries().unwrap();
     let battery = match manager.into_iter().next() {
         Some(battery) => battery,
@@ -259,7 +308,7 @@ fn is_plugged(has_asked: bool) -> bool {
     }
 }
 
-fn execute_build_command(command: &str) {
+pub fn execute_build_command(command: &str) {
     let iterator = command.split_whitespace();
     let mut command = Command::new(iterator.clone().next().unwrap());
     for arg in iterator.skip(1) {
