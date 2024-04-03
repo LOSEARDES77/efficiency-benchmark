@@ -162,7 +162,9 @@ pub fn is_plugged(has_asked: bool) -> bool {
     }
 }
 
-pub fn execute_build_command(command: &str) {
+pub fn execute_build_command(command: &str) -> Receiver<String> {
+    let (sender, receiver) = channel();
+
     let iterator = command.split_whitespace();
     let mut command = Command::new(iterator.clone().next().unwrap());
     for arg in iterator.skip(1) {
@@ -172,16 +174,19 @@ pub fn execute_build_command(command: &str) {
         .stdout(Stdio::piped())
         .spawn()
         .expect("failed to build repository");
-
-    let reader = BufReader::new(process.stdout.take().expect("failed to get stdout"));
-    for line in reader.lines() {
-        match line {
-            Ok(line) => {
-                println!("{}", line);
-            },
-            Err(_) => {},
+    thread::spawn(move || {
+        let reader = BufReader::new(process.stdout.take().expect("failed to get stdout"));
+        for line in reader.lines() {
+            match line {
+                Ok(line) => {
+                    sender.send(line.clone()).unwrap();
+                },
+                Err(_) => {},
+            }
         }
-    }
+    })
+
+    receiver
 }
 
 fn copy_directory(source: &str, destination: &str) -> std::io::Result<()> {
