@@ -184,7 +184,7 @@ pub fn execute_build_command(command: &str) -> Receiver<String> {
                 Err(_) => {},
             }
         }
-    })
+    });
 
     receiver
 }
